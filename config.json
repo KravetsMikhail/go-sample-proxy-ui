@@ -1,0 +1,13 @@
+{
+    "keycloak": {
+      "token_url": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/token",
+      "client_id": "my-client-id",
+      "client_secret": "my-client-secret"
+    },
+    "pairs": [
+      {
+        "from": "https://service-a.example.com/data",
+        "to": "https://service-b.example.com/data"
+      }
+    ]
+  }
