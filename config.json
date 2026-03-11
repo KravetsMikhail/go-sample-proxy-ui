@@ -4,6 +4,10 @@
       "client_id": "my-client-id",
       "client_secret": "my-client-secret"
     },
+    "tls": {
+      "insecure_skip_verify": false,
+      "ca_file": ""
+    },
     "pairs": [
       {
         "name": "Service A → Service B",

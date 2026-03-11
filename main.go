@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -18,7 +20,13 @@ import (
 
 type Config struct {
 	Keycloak KeycloakConfig `json:"keycloak"`
+	TLS      TLSConfig      `json:"tls"`
 	Pairs    []Pair         `json:"pairs"`
+}
+
+type TLSConfig struct {
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+	CAFile             string `json:"ca_file"`
 }
 
 type KeycloakConfig struct {
@@ -41,11 +49,48 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	if err := configureHTTPClientTLS(&cfg); err != nil {
+		log.Fatalf("configure tls: %v", err)
+	}
+
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/sync", syncHandler)
 
 	log.Println("listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func configureHTTPClientTLS(cfg *Config) error {
+	// Default http.Transport already uses system roots; we only override when needed.
+	if !cfg.TLS.InsecureSkipVerify && strings.TrimSpace(cfg.TLS.CAFile) == "" {
+		return nil
+	}
+
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify, //nolint:gosec // explicitly configured for internal/self-signed setups
+	}
+
+	if strings.TrimSpace(cfg.TLS.CAFile) != "" {
+		pemBytes, err := os.ReadFile(cfg.TLS.CAFile)
+		if err != nil {
+			return fmt.Errorf("read ca_file: %w", err)
+		}
+
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if ok := pool.AppendCertsFromPEM(pemBytes); !ok {
+			return fmt.Errorf("ca_file does not contain any valid PEM certificates")
+		}
+		tlsCfg.RootCAs = pool
+	}
+
+	httpClient.Transport = &http.Transport{
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: tlsCfg,
+	}
+	return nil
 }
 
 func loadConfig(path string, out interface{}) error {
