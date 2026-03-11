@@ -36,9 +36,11 @@ type KeycloakConfig struct {
 }
 
 type Pair struct {
-	Name string `json:"name"`
-	From string `json:"from"`
-	To   string `json:"to"`
+	Name         string          `json:"name"`
+	From         string          `json:"from"`
+	To           string          `json:"to"`
+	FromKeycloak *KeycloakConfig `json:"from_keycloak,omitempty"`
+	ToKeycloak   *KeycloakConfig `json:"to_keycloak,omitempty"`
 }
 
 var cfg Config
@@ -198,16 +200,33 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	writeLine("[%s] Start: %s", time.Now().Format(time.RFC3339), label)
 
-	writeLine("[%s] Fetch token", time.Now().Format(time.RFC3339))
-	token, err := fetchKeycloakToken(ctx, cfg.Keycloak, writeLine)
+	fromKC := cfg.Keycloak
+	if p.FromKeycloak != nil {
+		fromKC = *p.FromKeycloak
+	}
+	writeLine("[%s] Fetch FROM token", time.Now().Format(time.RFC3339))
+	tokenFrom, err := fetchKeycloakToken(ctx, fromKC, writeLine)
 	if err != nil {
-		writeLine("[%s] Token error: %s", time.Now().Format(time.RFC3339), err.Error())
+		writeLine("[%s] FROM token error: %s", time.Now().Format(time.RFC3339), err.Error())
 		w.Write([]byte(out.String()))
 		return
 	}
-	writeLine("[%s] Token OK", time.Now().Format(time.RFC3339))
+	writeLine("[%s] FROM token OK", time.Now().Format(time.RFC3339))
 
-	if err := copyOnce(ctx, token, p, writeLine); err != nil {
+	toKC := cfg.Keycloak
+	if p.ToKeycloak != nil {
+		toKC = *p.ToKeycloak
+	}
+	writeLine("[%s] Fetch TO token", time.Now().Format(time.RFC3339))
+	tokenTo, err := fetchKeycloakToken(ctx, toKC, writeLine)
+	if err != nil {
+		writeLine("[%s] TO token error: %s", time.Now().Format(time.RFC3339), err.Error())
+		w.Write([]byte(out.String()))
+		return
+	}
+	writeLine("[%s] TO token OK", time.Now().Format(time.RFC3339))
+
+	if err := copyOnce(ctx, tokenFrom, tokenTo, p, writeLine); err != nil {
 		writeLine("[%s] ERROR: %s", time.Now().Format(time.RFC3339), err.Error())
 	} else {
 		writeLine("[%s] OK", time.Now().Format(time.RFC3339))
@@ -268,7 +287,7 @@ func fetchKeycloakToken(ctx context.Context, kc KeycloakConfig, logf func(format
 	return data.AccessToken, nil
 }
 
-func copyOnce(ctx context.Context, token string, p Pair, logf func(format string, args ...any)) error {
+func copyOnce(ctx context.Context, tokenFrom, tokenTo string, p Pair, logf func(format string, args ...any)) error {
 	// GET
 	if logf != nil {
 		logf("[%s] GET %s", time.Now().Format(time.RFC3339), p.From)
@@ -277,7 +296,7 @@ func copyOnce(ctx context.Context, token string, p Pair, logf func(format string
 	if err != nil {
 		return err
 	}
-	reqGet.Header.Set("Authorization", "Bearer "+token)
+	reqGet.Header.Set("Authorization", "Bearer "+tokenFrom)
 
 	respGet, err := httpClient.Do(reqGet)
 	if err != nil {
@@ -311,7 +330,7 @@ func copyOnce(ctx context.Context, token string, p Pair, logf func(format string
 	if err != nil {
 		return err
 	}
-	reqPost.Header.Set("Authorization", "Bearer "+token)
+	reqPost.Header.Set("Authorization", "Bearer "+tokenTo)
 	// Если нужно сохранить тип, можно пробросить Content-Type:
 	if ct := respGet.Header.Get("Content-Type"); ct != "" {
 		reqPost.Header.Set("Content-Type", ct)

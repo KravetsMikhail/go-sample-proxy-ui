@@ -12,7 +12,17 @@
       {
         "name": "Service A → Service B",
         "from": "https://service-a.example.com/data",
-        "to": "https://service-b.example.com/data"
+        "to": "https://service-b.example.com/data",
+        "from_keycloak": {
+          "token_url": "https://keycloak.example.com/realms/realm-a-read/protocol/openid-connect/token",
+          "client_id": "client-a-read",
+          "client_secret": "secret-a-read"
+        },
+        "to_keycloak": {
+          "token_url": "https://keycloak.example.com/realms/realm-a-write/protocol/openid-connect/token",
+          "client_id": "client-a-write",
+          "client_secret": "secret-a-write"
+        }
       }
     ]
   }
