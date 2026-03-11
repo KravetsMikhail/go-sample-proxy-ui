@@ -199,7 +199,7 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	writeLine("[%s] Start: %s", time.Now().Format(time.RFC3339), label)
 
 	writeLine("[%s] Fetch token", time.Now().Format(time.RFC3339))
-	token, err := fetchKeycloakToken(ctx, cfg.Keycloak)
+	token, err := fetchKeycloakToken(ctx, cfg.Keycloak, writeLine)
 	if err != nil {
 		writeLine("[%s] Token error: %s", time.Now().Format(time.RFC3339), err.Error())
 		w.Write([]byte(out.String()))
@@ -215,7 +215,7 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(out.String()))
 }
 
-func fetchKeycloakToken(ctx context.Context, kc KeycloakConfig) (string, error) {
+func fetchKeycloakToken(ctx context.Context, kc KeycloakConfig, logf func(format string, args ...any)) (string, error) {
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("client_id", kc.ClientID)
@@ -233,16 +233,37 @@ func fetchKeycloakToken(ctx context.Context, kc KeycloakConfig) (string, error) 
 	}
 	defer resp.Body.Close()
 
+	if logf != nil {
+		logf("[%s] Token resp status %d", time.Now().Format(time.RFC3339), resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read token body: %w", err)
+	}
+
+	const maxSnippet = 512
+	snippet := body
+	if len(snippet) > maxSnippet {
+		snippet = snippet[:maxSnippet]
+	}
+	if logf != nil {
+		logf("[%s] Token raw body (first %d bytes): %s", time.Now().Format(time.RFC3339), len(snippet), string(snippet))
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("keycloak status %d: %s", resp.StatusCode, string(b))
+		return "", fmt.Errorf("keycloak status %d", resp.StatusCode)
 	}
 
 	var data struct {
 		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", err
+	if err := json.Unmarshal(body, &data); err != nil {
+		return "", fmt.Errorf("decode token json: %w", err)
+	}
+
+	if logf != nil {
+		logf("[%s] Token value: %s", time.Now().Format(time.RFC3339), data.AccessToken)
 	}
 	return data.AccessToken, nil
 }
