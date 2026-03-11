@@ -22,6 +22,7 @@ type Config struct {
 	Port            int           `json:"port"`
 	GetSnippetBytes int           `json:"get_snippet_bytes"`
 	JSONChunkSize   int           `json:"json_array_chunk_size"`
+	JSONChunkDelayMs int          `json:"json_array_chunk_delay_ms"`
 	Keycloak        KeycloakConfig `json:"keycloak"`
 	TLS             TLSConfig      `json:"tls"`
 	Pairs           []Pair         `json:"pairs"`
@@ -364,6 +365,7 @@ func copyOnce(ctx context.Context, tokenFrom, tokenTo string, p Pair, logf func(
 			if logf != nil {
 				logf("[%s] JSON array has %d items", time.Now().Format(time.RFC3339), total)
 			}
+			delay := time.Duration(cfg.JSONChunkDelayMs) * time.Millisecond
 			for start := 0; start < total; start += chunkSize {
 				end := start + chunkSize
 				if end > total {
@@ -397,6 +399,11 @@ func copyOnce(ctx context.Context, tokenFrom, tokenTo string, p Pair, logf func(
 					if logf != nil {
 						logf("[%s] POST chunk status %d", time.Now().Format(time.RFC3339), respPost.StatusCode)
 					}
+					if respPost.StatusCode == http.StatusTooManyRequests {
+						b, _ := io.ReadAll(respPost.Body)
+						err = fmt.Errorf("post chunk rate limited (429): %s", string(b))
+						return
+					}
 					if respPost.StatusCode >= 300 {
 						b, _ := io.ReadAll(respPost.Body)
 						err = fmt.Errorf("post chunk status %d: %s", respPost.StatusCode, string(b))
@@ -404,6 +411,12 @@ func copyOnce(ctx context.Context, tokenFrom, tokenTo string, p Pair, logf func(
 				}()
 				if err != nil {
 					return err
+				}
+				if delay > 0 && end < total {
+					if logf != nil {
+						logf("[%s] Sleep between chunks: %s", time.Now().Format(time.RFC3339), delay.String())
+					}
+					time.Sleep(delay)
 				}
 			}
 			return nil

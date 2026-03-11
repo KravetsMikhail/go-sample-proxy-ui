@@ -2,6 +2,7 @@
     "port": 8000,
     "get_snippet_bytes": 1024,
     "json_array_chunk_size": 100,
+    "json_array_chunk_delay_ms": 500,
     "keycloak": {
       "token_url": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/token",
       "client_id": "my-client-id",
