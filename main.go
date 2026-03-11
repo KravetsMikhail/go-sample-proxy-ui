@@ -164,8 +164,20 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
       appendLog('[' + ts() + '] Click: #' + i + '\n');
       try {
         const res = await fetch('/sync?i=' + encodeURIComponent(i), { method: 'POST' });
-        const txt = await res.text();
-        appendLog(txt);
+        if (!res.body || !res.body.getReader) {
+          const txt = await res.text();
+          appendLog(txt);
+          return;
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            appendLog(decoder.decode(value));
+          }
+        }
       } catch (e) {
         appendLog('Error: ' + e + '\n');
       }
@@ -185,6 +197,8 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	ctx := r.Context()
 
+	flusher, _ := w.(http.Flusher)
+
 	iStr := r.URL.Query().Get("i")
 	if iStr == "" {
 		http.Error(w, "missing query param i", http.StatusBadRequest)
@@ -197,9 +211,11 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	p := cfg.Pairs[i]
 
-	var out strings.Builder
 	writeLine := func(format string, args ...any) {
-		fmt.Fprintf(&out, format+"\n", args...)
+		fmt.Fprintf(w, format+"\n", args...)
+		if flusher != nil {
+			flusher.Flush()
+		}
 	}
 
 	label := p.Name
@@ -216,7 +232,6 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	tokenFrom, err := fetchKeycloakToken(ctx, fromKC, writeLine)
 	if err != nil {
 		writeLine("[%s] FROM token error: %s", time.Now().Format(time.RFC3339), err.Error())
-		w.Write([]byte(out.String()))
 		return
 	}
 	writeLine("[%s] FROM token OK", time.Now().Format(time.RFC3339))
@@ -229,7 +244,6 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	tokenTo, err := fetchKeycloakToken(ctx, toKC, writeLine)
 	if err != nil {
 		writeLine("[%s] TO token error: %s", time.Now().Format(time.RFC3339), err.Error())
-		w.Write([]byte(out.String()))
 		return
 	}
 	writeLine("[%s] TO token OK", time.Now().Format(time.RFC3339))
@@ -239,7 +253,6 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		writeLine("[%s] OK", time.Now().Format(time.RFC3339))
 	}
-	w.Write([]byte(out.String()))
 }
 
 func fetchKeycloakToken(ctx context.Context, kc KeycloakConfig, logf func(format string, args ...any)) (string, error) {
