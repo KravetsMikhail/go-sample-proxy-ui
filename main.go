@@ -271,6 +271,16 @@ func copyOnce(ctx context.Context, token string, p Pair, logf func(format string
 	if err != nil {
 		return err
 	}
+	if logf != nil {
+		lineCount := 0
+		if len(body) > 0 {
+			lineCount = bytes.Count(body, []byte{'\n'})
+			if body[len(body)-1] != '\n' {
+				lineCount++
+			}
+		}
+		logf("[%s] GET body: %d bytes, %d lines", time.Now().Format(time.RFC3339), len(body), lineCount)
+	}
 
 	// POST (данные один в один)
 	if logf != nil {
