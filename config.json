@@ -1,4 +1,6 @@
 {
+    "port": 8000,
+    "get_snippet_bytes": 1024,
     "keycloak": {
       "token_url": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/token",
       "client_id": "my-client-id",

@@ -19,9 +19,11 @@ import (
 )
 
 type Config struct {
-	Keycloak KeycloakConfig `json:"keycloak"`
-	TLS      TLSConfig      `json:"tls"`
-	Pairs    []Pair         `json:"pairs"`
+	Port            int           `json:"port"`
+	GetSnippetBytes int           `json:"get_snippet_bytes"`
+	Keycloak        KeycloakConfig `json:"keycloak"`
+	TLS             TLSConfig      `json:"tls"`
+	Pairs           []Pair         `json:"pairs"`
 }
 
 type TLSConfig struct {
@@ -58,8 +60,12 @@ func main() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/sync", syncHandler)
 
-	log.Println("listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	if cfg.Port == 0 {
+		addr = ":8000"
+	}
+	log.Println("listening on", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func configureHTTPClientTLS(cfg *Config) error {
@@ -320,6 +326,16 @@ func copyOnce(ctx context.Context, tokenFrom, tokenTo string, p Pair, logf func(
 			}
 		}
 		logf("[%s] GET body: %d bytes, %d lines", time.Now().Format(time.RFC3339), len(body), lineCount)
+
+		max := cfg.GetSnippetBytes
+		if max <= 0 {
+			max = 1024
+		}
+		snippet := body
+		if len(snippet) > max {
+			snippet = snippet[:max]
+		}
+		logf("[%s] GET body snippet (first %d bytes): %s", time.Now().Format(time.RFC3339), len(snippet), string(snippet))
 	}
 
 	// POST (данные один в один)
