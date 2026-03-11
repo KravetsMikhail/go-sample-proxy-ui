@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,6 +28,7 @@ type KeycloakConfig struct {
 }
 
 type Pair struct {
+	Name string `json:"name"`
 	From string `json:"from"`
 	To   string `json:"to"`
 }
@@ -56,26 +59,60 @@ func loadConfig(path string, out interface{}) error {
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	var buttons strings.Builder
+	for i, p := range cfg.Pairs {
+		label := p.Name
+		if strings.TrimSpace(label) == "" {
+			label = p.From + " -> " + p.To
+		}
+		fmt.Fprintf(&buttons, `<button onclick="syncOne(%d)">%s</button>`+"\n", i, html.EscapeString(label))
+	}
+
 	io.WriteString(w, `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <title>Proxy UI</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    #log { border: 1px solid #ddd; background: #0b1020; color: #e8e8e8; padding: 10px; min-height: 240px; white-space: pre-wrap; }
+  </style>
 </head>
 <body>
-  <button onclick="sync()">Sync services</button>
+  <div class="row">
+`+buttons.String()+`
+  </div>
+  <div class="row">
+    <button onclick="clearLog()">Clear log</button>
+  </div>
   <pre id="log"></pre>
   <script>
-    async function sync() {
+    function ts() {
+      return new Date().toISOString();
+    }
+    function appendLog(s) {
       const log = document.getElementById('log');
-      log.textContent = 'Running...\n';
+      // newest first (also reverse multiline blocks)
+      const lines = String(s).replace(/\r\n/g, '\n').split('\n');
+      if (lines.length && lines[lines.length - 1] === '') lines.pop();
+      const normalized = lines.reverse().join('\n') + (lines.length ? '\n' : '');
+      log.textContent = normalized + log.textContent;
+      log.scrollTop = 0;
+    }
+    function clearLog() {
+      document.getElementById('log').textContent = '';
+    }
+    async function syncOne(i) {
+      appendLog('[' + ts() + '] Click: #' + i + '\n');
       try {
-        const res = await fetch('/sync', { method: 'POST' });
+        const res = await fetch('/sync?i=' + encodeURIComponent(i), { method: 'POST' });
         const txt = await res.text();
-        log.textContent += txt;
+        appendLog(txt);
       } catch (e) {
-        log.textContent += 'Error: ' + e;
+        appendLog('Error: ' + e + '\n');
       }
     }
   </script>
@@ -90,20 +127,47 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	ctx := r.Context()
-	token, err := fetchKeycloakToken(ctx, cfg.Keycloak)
-	if err != nil {
-		http.Error(w, "token error: "+err.Error(), http.StatusInternalServerError)
+
+	iStr := r.URL.Query().Get("i")
+	if iStr == "" {
+		http.Error(w, "missing query param i", http.StatusBadRequest)
 		return
 	}
-
-	for _, p := range cfg.Pairs {
-		if err := copyOnce(ctx, token, p); err != nil {
-			w.Write([]byte("pair from " + p.From + " to " + p.To + ": " + err.Error() + "\n"))
-		} else {
-			w.Write([]byte("OK " + p.From + " -> " + p.To + "\n"))
-		}
+	i, err := strconv.Atoi(iStr)
+	if err != nil || i < 0 || i >= len(cfg.Pairs) {
+		http.Error(w, "invalid i", http.StatusBadRequest)
+		return
 	}
+	p := cfg.Pairs[i]
+
+	var out strings.Builder
+	writeLine := func(format string, args ...any) {
+		fmt.Fprintf(&out, format+"\n", args...)
+	}
+
+	label := p.Name
+	if strings.TrimSpace(label) == "" {
+		label = p.From + " -> " + p.To
+	}
+	writeLine("[%s] Start: %s", time.Now().Format(time.RFC3339), label)
+
+	writeLine("[%s] Fetch token", time.Now().Format(time.RFC3339))
+	token, err := fetchKeycloakToken(ctx, cfg.Keycloak)
+	if err != nil {
+		writeLine("[%s] Token error: %s", time.Now().Format(time.RFC3339), err.Error())
+		w.Write([]byte(out.String()))
+		return
+	}
+	writeLine("[%s] Token OK", time.Now().Format(time.RFC3339))
+
+	if err := copyOnce(ctx, token, p, writeLine); err != nil {
+		writeLine("[%s] ERROR: %s", time.Now().Format(time.RFC3339), err.Error())
+	} else {
+		writeLine("[%s] OK", time.Now().Format(time.RFC3339))
+	}
+	w.Write([]byte(out.String()))
 }
 
 func fetchKeycloakToken(ctx context.Context, kc KeycloakConfig) (string, error) {
@@ -138,8 +202,11 @@ func fetchKeycloakToken(ctx context.Context, kc KeycloakConfig) (string, error) 
 	return data.AccessToken, nil
 }
 
-func copyOnce(ctx context.Context, token string, p Pair) error {
+func copyOnce(ctx context.Context, token string, p Pair, logf func(format string, args ...any)) error {
 	// GET
+	if logf != nil {
+		logf("[%s] GET %s", time.Now().Format(time.RFC3339), p.From)
+	}
 	reqGet, err := http.NewRequestWithContext(ctx, http.MethodGet, p.From, nil)
 	if err != nil {
 		return err
@@ -152,12 +219,18 @@ func copyOnce(ctx context.Context, token string, p Pair) error {
 	}
 	defer respGet.Body.Close()
 
+	if logf != nil {
+		logf("[%s] GET status %d", time.Now().Format(time.RFC3339), respGet.StatusCode)
+	}
 	body, err := io.ReadAll(respGet.Body)
 	if err != nil {
 		return err
 	}
 
 	// POST (данные один в один)
+	if logf != nil {
+		logf("[%s] POST %s", time.Now().Format(time.RFC3339), p.To)
+	}
 	reqPost, err := http.NewRequestWithContext(ctx, http.MethodPost, p.To, io.NopCloser(bytes.NewReader(body)))
 	if err != nil {
 		return err
@@ -174,6 +247,9 @@ func copyOnce(ctx context.Context, token string, p Pair) error {
 	}
 	defer respPost.Body.Close()
 
+	if logf != nil {
+		logf("[%s] POST status %d", time.Now().Format(time.RFC3339), respPost.StatusCode)
+	}
 	if respPost.StatusCode >= 300 {
 		b, _ := io.ReadAll(respPost.Body)
 		return fmt.Errorf("post status %d: %s", respPost.StatusCode, string(b))

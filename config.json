@@ -6,6 +6,7 @@
     },
     "pairs": [
       {
+        "name": "Service A → Service B",
         "from": "https://service-a.example.com/data",
         "to": "https://service-b.example.com/data"
       }
