@@ -21,6 +21,7 @@ import (
 type Config struct {
 	Port            int           `json:"port"`
 	GetSnippetBytes int           `json:"get_snippet_bytes"`
+	JSONChunkSize   int           `json:"json_array_chunk_size"`
 	Keycloak        KeycloakConfig `json:"keycloak"`
 	TLS             TLSConfig      `json:"tls"`
 	Pairs           []Pair         `json:"pairs"`
@@ -338,7 +339,78 @@ func copyOnce(ctx context.Context, tokenFrom, tokenTo string, p Pair, logf func(
 		logf("[%s] GET body snippet (first %d bytes): %s", time.Now().Format(time.RFC3339), len(snippet), string(snippet))
 	}
 
-	// POST (данные один в один)
+	// Попробуем распознать JSON-массив и при необходимости отправить чанками
+	contentType := respGet.Header.Get("Content-Type")
+	chunkSize := cfg.JSONChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 0
+	}
+
+	trimmed := bytes.TrimSpace(body)
+	isJSONArray := len(trimmed) > 0 && trimmed[0] == '['
+
+	if chunkSize > 0 && isJSONArray {
+		if logf != nil {
+			logf("[%s] Detected JSON array, chunk size %d", time.Now().Format(time.RFC3339), chunkSize)
+		}
+
+		var items []json.RawMessage
+		if err := json.Unmarshal(trimmed, &items); err != nil {
+			if logf != nil {
+				logf("[%s] Failed to parse JSON array, fallback to single POST: %s", time.Now().Format(time.RFC3339), err.Error())
+			}
+		} else {
+			total := len(items)
+			if logf != nil {
+				logf("[%s] JSON array has %d items", time.Now().Format(time.RFC3339), total)
+			}
+			for start := 0; start < total; start += chunkSize {
+				end := start + chunkSize
+				if end > total {
+					end = total
+				}
+				chunk := items[start:end]
+				chunkBody, err := json.Marshal(chunk)
+				if err != nil {
+					return fmt.Errorf("marshal chunk %d-%d: %w", start, end, err)
+				}
+				if logf != nil {
+					logf("[%s] POST %s chunk %d-%d (%d items, %d bytes)", time.Now().Format(time.RFC3339), p.To, start, end-1, len(chunk), len(chunkBody))
+				}
+				reqPost, err := http.NewRequestWithContext(ctx, http.MethodPost, p.To, io.NopCloser(bytes.NewReader(chunkBody)))
+				if err != nil {
+					return err
+				}
+				reqPost.Header.Set("Authorization", "Bearer "+tokenTo)
+				if contentType != "" {
+					reqPost.Header.Set("Content-Type", contentType)
+				} else {
+					reqPost.Header.Set("Content-Type", "application/json")
+				}
+
+				respPost, err := httpClient.Do(reqPost)
+				if err != nil {
+					return err
+				}
+				func() {
+					defer respPost.Body.Close()
+					if logf != nil {
+						logf("[%s] POST chunk status %d", time.Now().Format(time.RFC3339), respPost.StatusCode)
+					}
+					if respPost.StatusCode >= 300 {
+						b, _ := io.ReadAll(respPost.Body)
+						err = fmt.Errorf("post chunk status %d: %s", respPost.StatusCode, string(b))
+					}
+				}()
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+
+	// Обычный случай: один POST с полным телом
 	if logf != nil {
 		logf("[%s] POST %s", time.Now().Format(time.RFC3339), p.To)
 	}
@@ -347,9 +419,8 @@ func copyOnce(ctx context.Context, tokenFrom, tokenTo string, p Pair, logf func(
 		return err
 	}
 	reqPost.Header.Set("Authorization", "Bearer "+tokenTo)
-	// Если нужно сохранить тип, можно пробросить Content-Type:
-	if ct := respGet.Header.Get("Content-Type"); ct != "" {
-		reqPost.Header.Set("Content-Type", ct)
+	if contentType != "" {
+		reqPost.Header.Set("Content-Type", contentType)
 	}
 
 	respPost, err := httpClient.Do(reqPost)
