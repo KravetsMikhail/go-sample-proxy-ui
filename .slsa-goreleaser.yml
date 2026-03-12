@@ -1,0 +1,20 @@
+version: v1
+
+# Minimal SLSA Go builder config for go-sample-proxy-ui
+
+builds:
+  - id: proxy-ui
+    main: ./main.go
+    binary: proxy-ui
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+release:
+  # Let the SLSA Go builder manage artifacts; this section can be
+  # extended later if you need more platforms or archives.
+  prerelease: false
+
