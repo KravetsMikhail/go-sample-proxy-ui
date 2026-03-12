@@ -21,15 +21,15 @@ flowchart LR
     subgraph Data Flow
       S -->|GET with FROM token| SRC[Source service]
       SRC -->|JSON / body| S
-      S -->|POST with TO token (JSON chunks)| DST[Target service]
+      S --> DST[Target service]
     end
 
     subgraph Config
-      C[config.json\n(port, tls, pairs,\nchunking, logging)] --> S
+      C[config.json => port, tls, pairs, chunking, logging] --> S
     end
 
     subgraph Docker
-      D[Docker container\n(proxy-ui + config.json)] --> S
+      D[Docker container proxy-ui + config.json] --> S
     end
 ```
 
