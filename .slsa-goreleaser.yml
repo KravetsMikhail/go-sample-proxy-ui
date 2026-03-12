@@ -2,17 +2,21 @@ version: 1
 
 # Minimal SLSA Go builder config for go-sample-proxy-ui
 
-builds:
-  - id: proxy-ui
-    main: ./main.go
-    binary: proxy-ui
-    goos:
-      - linux
-    goarch:
-      - amd64
+# Optional: environment variables used during compilation.
+env:
+  - GO111MODULE=on
+  - CGO_ENABLED=0
 
-release:
-  # Let the SLSA Go builder manage artifacts; this section can be
-  # extended later if you need more platforms or archives.
-  prerelease: false
+# Target platform. GOOS/GOARCH will be set by the builder.
+goos: linux
+goarch: amd64
+
+# Entrypoint to compile.
+main: ./main.go
+
+# Optional: working directory (keep default: repo root).
+# dir: .
+
+# Binary output name.
+binary: proxy-ui-linux-amd64
 
