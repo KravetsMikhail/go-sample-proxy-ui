@@ -21,7 +21,7 @@ flowchart LR
     subgraph Data Flow
       S -->|GET with FROM token| SRC[Source service]
       SRC -->|JSON / body| S
-      S -->|POST with TO token\n(single body or JSON chunks)| DST[Target service]
+      S -->|POST with TO token (JSON chunks)| DST[Target service]
     end
 
     subgraph Config
