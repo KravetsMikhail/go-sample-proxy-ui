@@ -1,4 +1,4 @@
-# Go Sample Proxy UI
+# Go Sample Proxy UI (v0.0.1)
 
 Minimal web UI that copies data from one HTTP service to another:
 

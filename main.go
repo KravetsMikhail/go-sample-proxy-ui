@@ -18,6 +18,8 @@ import (
 	"time"
 )
 
+const appVersion = "v0.0.1"
+
 type Config struct {
 	Port            int           `json:"port"`
 	GetSnippetBytes int           `json:"get_snippet_bytes"`
@@ -66,7 +68,7 @@ func main() {
 	if cfg.Port == 0 {
 		addr = ":8000"
 	}
-	log.Println("listening on", addr)
+	log.Printf("go-sample-proxy-ui %s listening on %s\n", appVersion, addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
@@ -128,7 +130,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>Proxy UI</title>
+  <title>Proxy UI `+appVersion+`</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -137,6 +139,9 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
   </style>
 </head>
 <body>
+  <div class="row">
+    <strong>go-sample-proxy-ui `+appVersion+`</strong>
+  </div>
   <div class="row">
 `+buttons.String()+`
   </div>
