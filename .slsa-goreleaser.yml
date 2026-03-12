@@ -6,8 +6,6 @@ builds:
   - id: proxy-ui
     main: ./main.go
     binary: proxy-ui
-    env:
-      - CGO_ENABLED=0
     goos:
       - linux
     goarch:
